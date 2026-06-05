@@ -36,7 +36,7 @@ void LvglScreenshot::jpeg_write_cb_(void *ctx, void *data, int size) {
 }
 
 // -----------------------------------------------------------------
-//  setup() — 懒分配版：启动时不分配大缓冲区
+//  setup()
 // -----------------------------------------------------------------
 void LvglScreenshot::setup() {
   instance_ = this;
@@ -59,14 +59,15 @@ void LvglScreenshot::setup() {
   width_  = (uint32_t) lv_disp_get_hor_res(disp);
   height_ = (uint32_t) lv_disp_get_ver_res(disp);
 
-  // ★ 不分配 rgb_buf_ / jpeg_buf_，留到截图时再分配
-  rgb_buf_  = nullptr;
-  jpeg_buf_ = nullptr;
+  rgb_buf_       = nullptr;
+  jpeg_buf_      = nullptr;
   jpeg_capacity_ = 0;
-  jpeg_size_ = 0;
+  jpeg_size_     = 0;
 
   start_server_();
-  ESP_LOGI(TAG, "Ready (lazy alloc) — http://<ip>:%u/screenshot (%ux%u)", port_, width_, height_);
+  ESP_LOGI(TAG, "Ready (lazy alloc) — http://<ip>:%u/screenshot (%ux%u), byte_order=%s",
+           port_, width_, height_,
+           byte_order_ == BYTE_ORDER_BIG_ENDIAN ? "big_endian" : "little_endian");
 }
 
 // -----------------------------------------------------------------
@@ -104,10 +105,11 @@ void LvglScreenshot::loop() {
 }
 
 // -----------------------------------------------------------------
-//  capture_flush_cb_()
+//  capture_flush_cb_()  ← 字节序适配的核心改动在这里
 // -----------------------------------------------------------------
 void LvglScreenshot::capture_flush_cb_(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
   auto *self = instance_;
+  const bool big_endian = (self->byte_order_ == BYTE_ORDER_BIG_ENDIAN);  // ✅ 新增
 
   int32_t area_w = lv_area_get_width(area);
   int32_t area_h = lv_area_get_height(area);
@@ -137,6 +139,12 @@ void LvglScreenshot::capture_flush_cb_(lv_display_t *disp, const lv_area_t *area
       if (cf == LV_COLOR_FORMAT_RGB565) {
         uint8_t *src_row = px_map + y * src_stride;
         uint16_t raw = ((uint16_t *) src_row)[x];
+
+        // ✅ big_endian 模式下缓冲区中字节已被交换，读取时还原
+        if (big_endian) {
+          raw = (uint16_t)((raw >> 8) | (raw << 8));
+        }
+
         uint8_t r5 = (raw >> 11) & 0x1F;
         uint8_t g6 = (raw >> 5)  & 0x3F;
         uint8_t b5 =  raw        & 0x1F;
@@ -146,15 +154,33 @@ void LvglScreenshot::capture_flush_cb_(lv_display_t *disp, const lv_area_t *area
 
       } else if (cf == LV_COLOR_FORMAT_RGB888) {
         uint8_t *src_row = px_map + y * src_stride;
-        out[0] = src_row[x * 3 + 2]; // R
-        out[1] = src_row[x * 3 + 1]; // G
-        out[2] = src_row[x * 3 + 0]; // B
+
+        if (big_endian) {
+          // ✅ big_endian：内存中为 R G B 顺序
+          out[0] = src_row[x * 3 + 0]; // R
+          out[1] = src_row[x * 3 + 1]; // G
+          out[2] = src_row[x * 3 + 2]; // B
+        } else {
+          // little_endian：内存中为 B G R 顺序
+          out[0] = src_row[x * 3 + 2]; // R
+          out[1] = src_row[x * 3 + 1]; // G
+          out[2] = src_row[x * 3 + 0]; // B
+        }
 
       } else if (cf == LV_COLOR_FORMAT_XRGB8888 || cf == LV_COLOR_FORMAT_ARGB8888) {
         uint8_t *src_row = px_map + y * src_stride;
-        out[0] = src_row[x * 4 + 2]; // R
-        out[1] = src_row[x * 4 + 1]; // G
-        out[2] = src_row[x * 4 + 0]; // B
+
+        if (big_endian) {
+          // ✅ big_endian：内存中为 A/X R G B 顺序
+          out[0] = src_row[x * 4 + 1]; // R
+          out[1] = src_row[x * 4 + 2]; // G
+          out[2] = src_row[x * 4 + 3]; // B
+        } else {
+          // little_endian：内存中为 B G R A/X 顺序
+          out[0] = src_row[x * 4 + 2]; // R
+          out[1] = src_row[x * 4 + 1]; // G
+          out[2] = src_row[x * 4 + 0]; // B
+        }
 
       } else {
         out[0] = out[1] = out[2] = 128;
@@ -171,9 +197,9 @@ void LvglScreenshot::capture_flush_cb_(lv_display_t *disp, const lv_area_t *area
   }
 }
 
-// =================================================================
-//  do_capture_() — 懒分配：申请 → 截图 → 编码 → 释放 rgb_buf_
-// =================================================================
+// -----------------------------------------------------------------
+//  do_capture_()
+// -----------------------------------------------------------------
 void LvglScreenshot::do_capture_() {
   lv_disp_t *disp = lv_disp_get_default();
   if (!disp) {
@@ -193,7 +219,6 @@ void LvglScreenshot::do_capture_() {
   uint32_t h = height_;
   size_t rgb_size = w * h * 3u;
 
-  // ---- 1. 懒分配 rgb_buf_ ----
   rgb_buf_ = (uint8_t *) heap_caps_malloc(rgb_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!rgb_buf_) {
     ESP_LOGE(TAG, "RGB buf alloc failed (%u B)", (unsigned) rgb_size);
@@ -202,7 +227,6 @@ void LvglScreenshot::do_capture_() {
   }
   std::memset(rgb_buf_, 0, rgb_size);
 
-  // ---- 2. 懒分配 jpeg_buf_ ----
   jpeg_capacity_ = rgb_size * 6 / 10;
   jpeg_buf_ = (uint8_t *) heap_caps_malloc(jpeg_capacity_, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!jpeg_buf_) {
@@ -213,7 +237,6 @@ void LvglScreenshot::do_capture_() {
     return;
   }
 
-  // ---- 3. 拦截 flush 回调 + 强制全屏重绘 ----
   orig_flush_cb_  = disp->flush_cb;
   flush_captured_ = false;
 
@@ -222,10 +245,9 @@ void LvglScreenshot::do_capture_() {
   lv_obj_invalidate(scr);
   lv_refr_now(disp);
 
-  disp->flush_cb  = orig_flush_cb_;
-  orig_flush_cb_  = nullptr;
+  disp->flush_cb = orig_flush_cb_;
+  orig_flush_cb_ = nullptr;
 
-  // ---- 4. 立即释放 rgb_buf_（编码前还需要它，所以编码后再释放）----
   if (!flush_captured_) {
     ESP_LOGE(TAG, "Flush callback was not invoked — capture failed");
     heap_caps_free(rgb_buf_);  rgb_buf_ = nullptr;
@@ -234,11 +256,9 @@ void LvglScreenshot::do_capture_() {
     return;
   }
 
-  // ---- 5. RGB888 → JPEG ----
   JpegWriteCtx ctx{jpeg_buf_, jpeg_capacity_, 0};
   int ok = stbi_write_jpg_to_func(jpeg_write_cb_, &ctx, (int) w, (int) h, 3, rgb_buf_, 80);
 
-  // ★ rgb_buf_ 用完即释放
   heap_caps_free(rgb_buf_);
   rgb_buf_ = nullptr;
 
@@ -252,8 +272,6 @@ void LvglScreenshot::do_capture_() {
 
   jpeg_size_ = ctx.size;
   ESP_LOGD(TAG, "Snapshot %ux%u → %u bytes JPEG", w, h, (unsigned) jpeg_size_);
-
-  // ★ jpeg_buf_ 保留，等 HTTP 发送完后由 handle_screenshot_ 释放
 }
 
 // -----------------------------------------------------------------
@@ -273,7 +291,6 @@ esp_err_t LvglScreenshot::handle_screenshot_(httpd_req_t *req) {
   }
   self->in_progress_ = true;
 
-  // 通知主线程截图
   xSemaphoreGive(self->capture_requested_);
   if (xSemaphoreTake(self->capture_done_, pdMS_TO_TICKS(5000)) != pdTRUE) {
     self->in_progress_ = false;
@@ -286,7 +303,6 @@ esp_err_t LvglScreenshot::handle_screenshot_(httpd_req_t *req) {
     return ESP_FAIL;
   }
 
-  // 发送 JPEG
   httpd_resp_set_type(req, "image/jpeg");
   httpd_resp_set_hdr(req, "Cache-Control", "no-store");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -302,11 +318,10 @@ esp_err_t LvglScreenshot::handle_screenshot_(httpd_req_t *req) {
   }
   httpd_resp_send_chunk(req, nullptr, 0);
 
-  // ★ 发送完成，释放 jpeg_buf_
   heap_caps_free(self->jpeg_buf_);
-  self->jpeg_buf_ = nullptr;
+  self->jpeg_buf_      = nullptr;
   self->jpeg_capacity_ = 0;
-  self->jpeg_size_ = 0;
+  self->jpeg_size_     = 0;
 
   self->in_progress_ = false;
   return ret;
