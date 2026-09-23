@@ -132,14 +132,13 @@ void LvglScreenshot::loop() {
 // ---------------------------------------------------------------------------
 void LvglScreenshot::do_capture_() {
   lv_display_t *disp = lv_display_get_default();
-  if (!disp || !disp->driver || !disp->driver->draw_buf ||
-      !disp->driver->draw_buf->buf_act) {
+  lv_draw_buf_t* lvgl_buf = lv_display_get_buf_active(disp);
+  if (!disp || !lvgl_buf) {
     ESP_LOGE(TAG, "LVGL framebuffer not available");
     this->jpeg_size_ = 0;
     return;
   }
 
-  auto *lvgl_buf = (lv_color_t *) disp->driver->draw_buf->buf_act;
   uint32_t width = (uint32_t) lv_disp_get_hor_res(disp);
   uint32_t height = (uint32_t) lv_disp_get_ver_res(disp);
 
@@ -149,7 +148,7 @@ void LvglScreenshot::do_capture_() {
   for (uint32_t y = 0; y < height; y++) {
     uint8_t *row = this->rgb_buf_ + y * width * 3u;
     for (uint32_t x = 0; x < width; x++) {
-      lv_color_t c = lvgl_buf[y * width + x];
+      lv_color_t c = (lv_color_t)lvgl_buf->data[y * width + x];
 
       uint8_t r5 = c.red;
       uint8_t g6 = c.green;
