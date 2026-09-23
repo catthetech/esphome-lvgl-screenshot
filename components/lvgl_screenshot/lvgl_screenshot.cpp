@@ -151,11 +151,9 @@ void LvglScreenshot::do_capture_() {
     for (uint32_t x = 0; x < width; x++) {
       lv_color_t c = lvgl_buf[y * width + x];
 
-      // ESPHome builds LVGL with LV_COLOR_16_SWAP=1, so the green channel
-      // is split across green_h (bits 2:0 of low byte) and green_l (bits 15:13).
-      uint8_t r5 = c.ch.red;
-      uint8_t g6 = (uint8_t) ((c.ch.green_h << 3) | c.ch.green_l);
-      uint8_t b5 = c.ch.blue;
+      uint8_t r5 = c.red;
+      uint8_t g6 = c.green;
+      uint8_t b5 = c.blue;
 
       // Scale 5-bit → 8-bit and 6-bit → 8-bit by replicating the MSBs
       row[x * 3 + 0] = (uint8_t) ((r5 << 3) | (r5 >> 2));
