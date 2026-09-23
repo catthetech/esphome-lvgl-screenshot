@@ -169,7 +169,7 @@ void LvglScreenshot::do_capture_() {
                          (int) width, (int) height, 3, this->rgb_buf_, 80);
 
   this->jpeg_size_ = ctx.size;
-  ESP_LOGD(TAG, "Captured %ux%u JPEG (%u bytes)", width, height, (unsigned) this->jpeg_size_);
+  ESP_LOGD(TAG, "Captured %lux%lu JPEG (%u bytes)", width, height, (unsigned) this->jpeg_size_);
 }
 
 // ---------------------------------------------------------------------------
