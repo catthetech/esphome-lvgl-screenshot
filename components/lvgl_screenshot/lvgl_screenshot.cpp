@@ -148,11 +148,12 @@ void LvglScreenshot::do_capture_() {
   for (uint32_t y = 0; y < height; y++) {
     uint8_t *row = this->rgb_buf_ + y * width * 3u;
     for (uint32_t x = 0; x < width; x++) {
-      lv_color_t c = (lv_color_t)lvgl_buf->data[y * width + x];
+      void* pixel_ptr = lv_draw_buf_goto_xy(lvgl_buf, x, y);
+      uint16_t c = *(uint16_t *)pixel_ptr;
 
-      uint8_t r5 = c.red;
-      uint8_t g6 = c.green;
-      uint8_t b5 = c.blue;
+      uint8_t r5 = (c & 0xF800) >> 11;
+      uint8_t g6 = (c & 0x07E0) >> 5;
+      uint8_t b5 = (c & 0x001F);
 
       // Scale 5-bit → 8-bit and 6-bit → 8-bit by replicating the MSBs
       row[x * 3 + 0] = (uint8_t) ((r5 << 3) | (r5 >> 2));
