@@ -57,7 +57,7 @@ void LvglScreenshot::setup() {
   }
 
   // Determine display dimensions from the default LVGL display
-  lv_disp_t *disp = lv_disp_get_default();
+  lv_display_t *disp = lv_display_get_default();
   if (!disp) {
     ESP_LOGE(TAG, "No LVGL display found - is lvgl: initialised before this component?");
     this->mark_failed();
@@ -131,7 +131,7 @@ void LvglScreenshot::loop() {
 // do_capture_()  –  convert LVGL RGB565 → RGB888, then encode to JPEG
 // ---------------------------------------------------------------------------
 void LvglScreenshot::do_capture_() {
-  lv_disp_t *disp = lv_disp_get_default();
+  lv_display_t *disp = lv_display_get_default();
   if (!disp || !disp->driver || !disp->driver->draw_buf ||
       !disp->driver->draw_buf->buf_act) {
     ESP_LOGE(TAG, "LVGL framebuffer not available");
