@@ -156,9 +156,10 @@ void LvglScreenshot::do_capture_() {
       uint8_t b5 = (c & 0x001F);
 
       // Scale 5-bit → 8-bit and 6-bit → 8-bit by replicating the MSBs
-      row[x * 3 + 0] = (uint8_t) ((r5 << 3) | (r5 >> 2));
-      row[x * 3 + 1] = (uint8_t) ((g6 << 2) | (g6 >> 4));
-      row[x * 3 + 2] = (uint8_t) ((b5 << 3) | (b5 >> 2));
+      // For some reason my display in in BRG mode?
+      row[x * 3 + 0] = (uint8_t) ((b5 << 3) | (b5 >> 2));
+      row[x * 3 + 1] = (uint8_t) ((r5 << 3) | (r5 >> 2));
+      row[x * 3 + 2] = (uint8_t) ((g6 << 2) | (g6 >> 4));
     }
   }
 
