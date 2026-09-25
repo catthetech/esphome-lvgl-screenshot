@@ -1,4 +1,5 @@
 import esphome.codegen as cg
+from esphome.components.esp32 import include_builtin_idf_component
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_PORT
 
@@ -29,6 +30,7 @@ CONFIG_SCHEMA = cv.Schema(
 
 
 async def to_code(config):
+    include_builtin_idf_component("esp_http_server")
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     cg.add(var.set_port(config[CONF_PORT]))
